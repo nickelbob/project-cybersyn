@@ -1,4 +1,55 @@
 ---------------------------------------------------------------------------------------------------
+Version: 2.0.41
+Date: 2026-02-03
+  Bugfixes:
+    - Hide analytics surface from map view
+---------------------------------------------------------------------------------------------------
+Version: 2.0.40
+Date: 2026-02-01
+  Changes:
+    - CS is now optionally dependent on Factorio Charts
+  Features:
+    - New tab in CS Manager - Utilisation
+    - New tab in CS Manager - Breakdown
+    - New map setting - Enable analytics (TURNED OFF BY DEFAULT)
+---------------------------------------------------------------------------------------------------
+Version: 2.0.39
+Date: 2026-01-08
+  Bugfixes:
+    - Fix crash when inventory contains items with invalid sprites
+    - Deleting a train assigned to a refueler now removes it from refueler train limit
+---------------------------------------------------------------------------------------------------
+Version: 2.0.38
+Date: 2025-12-23
+  Changes:
+    - Click on inventory item to filter stations in GUI
+  Bugfixes:
+    - Occasional "No Path" error for cross-surface return trips (SE Elevator)
+  Translation:
+    - Update to RU locale
+---------------------------------------------------------------------------------------------------
+Version: 2.0.37
+Date: 2025-12-01
+  Changes:
+    - Remove case sensitivity from station search in GUI
+    - Removed alert sending when train cannot find path between surfaces
+  Bugfixes:
+    - Now correctly uses closest Space Elevator when making schedule
+  Translation:
+    - Added Polish language pack
+    - Fix in Russian translation
+    - Fix in German translation
+---------------------------------------------------------------------------------------------------
+Version: 2.0.36
+Date: 2025-10-29
+  Changes:
+    - Change icon for Cybersyn Manager
+    - Make Cybersyn Manager always on (there is no longer setting for enabling/disabling it)
+  Bugfixes:
+    - Fixed variable mismatch causing the GUI not being closable and not auto closing on entity being removed or destroyed
+  Translation:
+    - Remove Cybersyn Manager enabling setting key and description from all locale files
+---------------------------------------------------------------------------------------------------
 Version: 2.0.35
 Date: 2025-10-08
   Changes:

@@ -128,6 +128,13 @@ data:extend({
 		default_value = false,
 	},
 	{
+		type = "bool-setting",
+		name = "cybersyn-enable-analytics",
+		order = "ce",
+		setting_type = "runtime-global",
+		default_value = false,
+	},
+	{
 		type = "double-setting",
 		name = "cybersyn-manager-updates-per-second",
 		order = "ad",
@@ -135,13 +142,6 @@ data:extend({
 		default_value = 1,
 		minimum_value = 0,
 		maximum_value = 60,
-	},
-	{
-		type = "bool-setting",
-		name = "cybersyn-manager-enabled",
-		order = "aa",
-		setting_type = "startup",
-		default_value = false,
 	},
 	{
 		type = "int-setting",
