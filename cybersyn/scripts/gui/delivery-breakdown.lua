@@ -12,7 +12,7 @@ local delivery_breakdown_tab = {}
 local CACHE_DURATION_TICKS = 300  -- 5 seconds at 60 UPS
 local MAX_BARS = 200  -- Limit bars rendered for performance
 
-local interval_names = {"1m", "10m", "1h", "10h", "50h"}
+local interval_names = {"10m", "1h", "10h", "50h"}
 
 -- Graph dimensions (pixels) - sized to fill the manager window
 local GRAPH_WIDTH = 1100
@@ -240,9 +240,10 @@ end
 ---@param data table Analytics data
 ---@param oldest_tick number Minimum complete_tick to include
 ---@param search_item string? Optional item filter
+---@param player_data table? Player data for network/surface filters
 ---@return table filtered Filtered and sorted deliveries
 ---@return table stats Aggregated statistics
-local function gather_filter_and_stats(map_data, data, oldest_tick, search_item)
+local function gather_filter_and_stats(map_data, data, oldest_tick, search_item, player_data)
 	local filtered = {}
 	local total_wait, total_travel_p, total_loading = 0, 0, 0
 	local total_travel_r, total_unloading = 0, 0
@@ -255,6 +256,10 @@ local function gather_filter_and_stats(map_data, data, oldest_tick, search_item)
 	local fail_count = 0
 	local delivery_count = 0
 
+	-- Read network/surface filters from player_data
+	local filter_network_name = player_data and player_data.search_network_name or nil
+	local filter_surface_idx = player_data and player_data.search_surface_idx or nil
+
 	for item_hash, deliveries in pairs(data.completed_deliveries) do
 		local include = true
 		if search_item then
@@ -265,6 +270,14 @@ local function gather_filter_and_stats(map_data, data, oldest_tick, search_item)
 		if include then
 			for _, delivery in ipairs(deliveries) do
 				if delivery.complete_tick >= oldest_tick then
+					-- Filter by network (skip old records without network_name gracefully)
+					if filter_network_name and delivery.network_name and delivery.network_name ~= filter_network_name then
+						goto continue_delivery
+					end
+					-- Filter by surface (skip old records without surface_index gracefully)
+					if filter_surface_idx and delivery.surface_index and delivery.surface_index ~= filter_surface_idx then
+						goto continue_delivery
+					end
 					-- Add item_hash to delivery for tooltip display
 					delivery.item_hash = item_hash
 					filtered[#filtered + 1] = delivery
@@ -274,6 +287,7 @@ local function gather_filter_and_stats(map_data, data, oldest_tick, search_item)
 					total_loading = total_loading + (delivery.loading or 0)
 					total_travel_r = total_travel_r + (delivery.travel_to_r or 0)
 					total_unloading = total_unloading + (delivery.unloading or 0)
+					::continue_delivery::
 				end
 			end
 		end
@@ -287,6 +301,15 @@ local function gather_filter_and_stats(map_data, data, oldest_tick, search_item)
 		if search_item then
 			local item_name = unhash_signal(failure.item_hash)
 			include = (item_name == search_item)
+		end
+
+		-- Filter by network (skip old failures without network_name gracefully)
+		if include and filter_network_name and failure.network_name and failure.network_name ~= filter_network_name then
+			include = false
+		end
+		-- Filter by surface (skip old failures without surface_index gracefully)
+		if include and filter_surface_idx and failure.surface_index and failure.surface_index ~= filter_surface_idx then
+			include = false
 		end
 
 		if include then
@@ -409,7 +432,9 @@ function delivery_breakdown_tab.build(map_data, player_data)
 	local oldest_tick = current_tick - interval_ticks
 
 	-- Check cache - use cached data if still valid
-	local cache_key = string.format("%d:%s", interval_index, search_item or "")
+	local cache_key = string.format("%d:%s:%s:%s", interval_index, search_item or "",
+		tostring(player_data.search_network_name or ""),
+		tostring(player_data.search_surface_idx or ""))
 	local cache = player_data.breakdown_cache
 	local filtered, stats
 	local cache_hit = false
@@ -420,7 +445,7 @@ function delivery_breakdown_tab.build(map_data, player_data)
 		cache_hit = true
 	else
 		-- Cache miss - generate fresh data with single-pass function
-		filtered, stats = gather_filter_and_stats(map_data, data, oldest_tick, search_item)
+		filtered, stats = gather_filter_and_stats(map_data, data, oldest_tick, search_item, player_data)
 		player_data.breakdown_cache = {
 			tick = current_tick,
 			key = cache_key,

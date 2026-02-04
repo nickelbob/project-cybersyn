@@ -65,8 +65,6 @@ end
 
 -- Interval definitions for time series data
 local interval_defs = {
-	{name = "5s",    ticks = 1,      steps = 6,   length = 300},
-	{name = "1m",    ticks = 6,      steps = 10,  length = 600},
 	{name = "10m",   ticks = 60,     steps = 6,   length = 600},
 	{name = "1h",    ticks = 360,    steps = 10,  length = 600},
 	{name = "10h",   ticks = 3600,   steps = 5,   length = 600},
@@ -76,16 +74,36 @@ local interval_defs = {
 }
 
 local interval_map = {
-	["5s"] = 1, ["1m"] = 2, ["10m"] = 3, ["1h"] = 4,
-	["10h"] = 5, ["50h"] = 6, ["250h"] = 7, ["1000h"] = 8,
+	["10m"] = 1, ["1h"] = 2,
+	["10h"] = 3, ["50h"] = 4, ["250h"] = 5, ["1000h"] = 6,
+}
+
+-- Per-network/surface sets are sampled once per second instead of every tick.
+-- Same structure as interval_defs but with ticks values reflecting 1/sec base rate.
+local filtered_interval_defs = {
+	{name = "10m",   ticks = 1,      steps = 6,   length = 600},
+	{name = "1h",    ticks = 6,      steps = 10,  length = 600},
+	{name = "10h",   ticks = 60,     steps = 5,   length = 600},
+	{name = "50h",   ticks = 300,    steps = 5,   length = 600},
+	{name = "250h",  ticks = 1500,   steps = 4,   length = 600},
+	{name = "1000h", ticks = 6000,   steps = nil, length = 600},
 }
 
 local SURFACE_NAME = "cybersyn_analytics"
+
+-- Sampling interval for per-network/surface utilization (game ticks, 60 = 1 second)
+local FILTERED_UTIL_INTERVAL = 60
 
 ---Create a new interval set (8 intervals for one graph)
 ---@return table[] intervals
 local function new_interval_set()
 	return charts.create_time_series(interval_defs)
+end
+
+---Create a reduced interval set for per-network/surface utilization (6 intervals, sampled 1/sec)
+---@return table[] intervals
+local function new_filtered_interval_set()
+	return charts.create_time_series(filtered_interval_defs)
 end
 
 ---Initialize analytics data structure
@@ -117,6 +135,12 @@ function analytics.init(map_data)
 		if not map_data.analytics.active_failures then
 			map_data.analytics.active_failures = {}
 		end
+		if not map_data.analytics.util_by_network then
+			map_data.analytics.util_by_network = {}
+		end
+		if not map_data.analytics.util_by_surface then
+			map_data.analytics.util_by_surface = {}
+		end
 		-- Clean up old data structures if present
 		map_data.analytics.failed_dispatches = nil
 		map_data.analytics.last_failure_tick = nil
@@ -137,6 +161,8 @@ function analytics.init(map_data)
 		completed_deliveries = {},
 		active_failures = {},
 		breakdown_interval = nil,
+		util_by_network = {},
+		util_by_surface = {},
 	}
 	debug_log("Analytics initialized, surface index: " .. surface_data.surface.index)
 end
@@ -215,7 +241,9 @@ end
 ---@param item_hash string
 ---@param fulfillment_time uint?
 ---@param r_station_id uint? Requester station ID (to clear active failure)
-function analytics.record_delivery_start(map_data, train_id, item_hash, fulfillment_time, r_station_id)
+---@param network_name string? Network name for filtering
+---@param surface_index uint? Surface index for filtering
+function analytics.record_delivery_start(map_data, train_id, item_hash, fulfillment_time, r_station_id, network_name, surface_index)
 	if not analytics.is_enabled() then return end
 	if not map_data.analytics then return end
 
@@ -236,6 +264,8 @@ function analytics.record_delivery_start(map_data, train_id, item_hash, fulfillm
 		arrive_p_tick = nil,
 		leave_p_tick = nil,
 		arrive_r_tick = nil,
+		network_name = network_name,
+		surface_index = surface_index,
 	}
 
 	-- Clear any active failure for this item+station since delivery is now in progress
@@ -303,6 +333,8 @@ function analytics.record_delivery_complete(map_data, train_id)
 				((phases.arrive_r_tick - phases.leave_p_tick) / 60) or 0,
 			unloading = phases.arrive_r_tick and
 				((current_tick - phases.arrive_r_tick) / 60) or 0,
+			network_name = phases.network_name,
+			surface_index = phases.surface_index,
 		}
 
 		if not data.completed_deliveries[item_hash] then
@@ -374,7 +406,9 @@ local FAILURE_STALE_TICKS = 3600   -- Consider failure resolved if not updated f
 ---@param failure_reason number 0=no provider stock, 1=no train, 2=capacity, 3=layout
 ---@param wait_so_far number seconds the request has been waiting (cumulative)
 ---@param p_station_id uint? provider station id if one was found
-function analytics.record_failed_dispatch(map_data, r_station_id, item_hash, failure_reason, wait_so_far, p_station_id)
+---@param network_name string? Network name for filtering
+---@param surface_index uint? Surface index for filtering
+function analytics.record_failed_dispatch(map_data, r_station_id, item_hash, failure_reason, wait_so_far, p_station_id, network_name, surface_index)
 	if not analytics.is_enabled() then return end
 	if not map_data.analytics then return end
 
@@ -396,6 +430,9 @@ function analytics.record_failed_dispatch(map_data, r_station_id, item_hash, fai
 		existing.failure_reason = failure_reason  -- Reason might change
 		existing.p_station_id = p_station_id
 		-- Keep original request_start_tick so bar shows full wait time
+		-- Update network/surface in case they weren't set before
+		if network_name then existing.network_name = network_name end
+		if surface_index then existing.surface_index = surface_index end
 	else
 		-- New active failure - calculate when the request actually started
 		-- wait_so_far is in seconds, convert back to ticks to find original request time
@@ -407,6 +444,8 @@ function analytics.record_failed_dispatch(map_data, r_station_id, item_hash, fai
 			last_tick = current_tick,
 			failure_reason = failure_reason,
 			p_station_id = p_station_id,
+			network_name = network_name,
+			surface_index = surface_index,
 		}
 	end
 end
@@ -453,6 +492,8 @@ function analytics.get_active_failures(map_data, oldest_tick)
 				duration = duration_seconds,
 				request_start_tick = start,
 				last_tick = failure.last_tick,
+				network_name = failure.network_name,
+				surface_index = failure.surface_index,
 			}
 		end
 	end
@@ -476,17 +517,64 @@ function analytics.tick(map_data)
 	if not map_data.analytics then return end
 
 	local data = map_data.analytics
+	local current_tick = game.tick
+
+	-- Check if this tick should also sample per-network/surface data (once per second)
+	local sample_filtered = false
+	if not data.util_filter_last_tick or (current_tick - data.util_filter_last_tick) >= FILTERED_UTIL_INTERVAL then
+		data.util_filter_last_tick = current_tick
+		sample_filtered = true
+	end
 
 	local working_counts = {}
 	local total_counts = {}
+
+	-- Only allocate per-network/surface tables when sampling
+	local net_working, net_total, surf_working, surf_total
+	if sample_filtered then
+		net_working = {}
+		net_total = {}
+		surf_working = {}
+		surf_total = {}
+	end
 
 	for train_id, train in pairs(map_data.trains) do
 		local layout_id = train.layout_id
 		if layout_id then
 			local key = tostring(layout_id)
+			local is_working = WORKING_STATUSES[train.status]
+
 			total_counts[key] = (total_counts[key] or 0) + 1
-			if WORKING_STATUSES[train.status] then
+			if is_working then
 				working_counts[key] = (working_counts[key] or 0) + 1
+			end
+
+			if sample_filtered then
+				-- Per-network tracking
+				local net = train.network_name
+				if net then
+					if not net_total[net] then
+						net_total[net] = {}
+						net_working[net] = {}
+					end
+					net_total[net][key] = (net_total[net][key] or 0) + 1
+					if is_working then
+						net_working[net][key] = (net_working[net][key] or 0) + 1
+					end
+				end
+
+				-- Per-surface tracking
+				local surf = train.depot_surface_id
+				if surf then
+					if not surf_total[surf] then
+						surf_total[surf] = {}
+						surf_working[surf] = {}
+					end
+					surf_total[surf][key] = (surf_total[surf][key] or 0) + 1
+					if is_working then
+						surf_working[surf][key] = (surf_working[surf][key] or 0) + 1
+					end
+				end
 			end
 		end
 	end
@@ -500,6 +588,39 @@ function analytics.tick(map_data)
 
 	if next(utilization_value) then
 		charts.add_datapoint(data.train_utilization, utilization_value)
+	end
+
+	-- Per-network/surface utilization (sampled once per second)
+	if sample_filtered then
+		if not data.util_by_network then data.util_by_network = {} end
+		for net, net_totals in pairs(net_total) do
+			if not data.util_by_network[net] then
+				data.util_by_network[net] = new_filtered_interval_set()
+			end
+			local net_util = {}
+			for layout_id, total in pairs(net_totals) do
+				local working = (net_working[net] and net_working[net][layout_id]) or 0
+				net_util[layout_id] = (working / total) * 100
+			end
+			if next(net_util) then
+				charts.add_datapoint(data.util_by_network[net], net_util)
+			end
+		end
+
+		if not data.util_by_surface then data.util_by_surface = {} end
+		for surf, surf_totals in pairs(surf_total) do
+			if not data.util_by_surface[surf] then
+				data.util_by_surface[surf] = new_filtered_interval_set()
+			end
+			local surf_util = {}
+			for layout_id, total in pairs(surf_totals) do
+				local working = (surf_working[surf] and surf_working[surf][layout_id]) or 0
+				surf_util[layout_id] = (working / total) * 100
+			end
+			if next(surf_util) then
+				charts.add_datapoint(data.util_by_surface[surf], surf_util)
+			end
+		end
 	end
 
 	if data.fulfillment_ema and next(data.fulfillment_ema) then

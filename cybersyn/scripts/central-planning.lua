@@ -278,7 +278,7 @@ function create_delivery(map_data, r_station_id, p_station_id, train_id, manifes
 				if r_station.request_start_ticks and r_station.request_start_ticks[item_hash] then
 					fulfillment_time = game.tick - r_station.request_start_ticks[item_hash]
 				end
-				analytics.record_delivery_start(map_data, train_id, item_hash, fulfillment_time)
+				analytics.record_delivery_start(map_data, train_id, item_hash, fulfillment_time, r_station_id, r_station.network_name, r_station.entity_stop.surface_index)
 			end
 			clear_request_tracking(r_station, item_hash)
 		end
@@ -511,7 +511,7 @@ local function tick_dispatch(map_data, mod_settings)
 						if station.request_start_ticks and station.request_start_ticks[no_provider_item_hash] then
 							wait_so_far = (game.tick - station.request_start_ticks[no_provider_item_hash]) / 60
 						end
-						analytics.record_failed_dispatch(map_data, id, no_provider_item_hash, FAILURE_REASON_NO_PROVIDER_STOCK, wait_so_far, nil)
+						analytics.record_failed_dispatch(map_data, id, no_provider_item_hash, FAILURE_REASON_NO_PROVIDER_STOCK, wait_so_far, nil, station.network_name, station.entity_stop.surface_index)
 					end
 				end
 			end
@@ -850,7 +850,7 @@ local function tick_dispatch(map_data, mod_settings)
 				failure_reason = FAILURE_REASON_LAYOUT_MISMATCH
 			end
 			local p_station_id = closest_to_correct_p_station and closest_to_correct_p_station.entity_stop.unit_number
-			analytics.record_failed_dispatch(map_data, r_station_id, item_hash, failure_reason, wait_so_far, p_station_id)
+			analytics.record_failed_dispatch(map_data, r_station_id, item_hash, failure_reason, wait_so_far, p_station_id, r_station.network_name, r_station.entity_stop.surface_index)
 			if band(r_station.display_state, 2) == 0 then
 				r_station.display_state = r_station.display_state + 2
 				update_display(map_data, r_station)

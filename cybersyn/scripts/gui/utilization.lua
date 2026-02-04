@@ -11,7 +11,7 @@ local utilization_tab = {}
 
 local CACHE_DURATION_TICKS = 300  -- 5 seconds at 60 UPS
 
-local interval_names = {"1m", "10m", "1h", "10h", "50h", "250h", "1000h"}
+local interval_names = {"10m", "1h", "10h", "50h", "250h", "1000h"}
 
 -- Graph dimensions (pixels) - sized to fill the manager window
 local GRAPH_WIDTH = 1100
@@ -159,6 +159,26 @@ local function build_sorted_series(interval)
 	return all_series
 end
 
+---Select the appropriate interval set based on active filters
+---@param data table Analytics data
+---@param player_data PlayerData
+---@return table intervals The interval set to use
+local function select_interval_set(data, player_data)
+	local search_network_name = player_data.search_network_name
+	local search_surface_idx = player_data.search_surface_idx
+
+	-- If both filters are active, prefer network filter for the time series
+	if search_network_name and data.util_by_network and data.util_by_network[search_network_name] then
+		return data.util_by_network[search_network_name]
+	end
+
+	if search_surface_idx and data.util_by_surface and data.util_by_surface[search_surface_idx] then
+		return data.util_by_surface[search_surface_idx]
+	end
+
+	return data.train_utilization
+end
+
 ---@param map_data MapData
 ---@param player_data PlayerData
 function utilization_tab.build(map_data, player_data)
@@ -176,8 +196,30 @@ function utilization_tab.build(map_data, player_data)
 
 	-- Get selected interval
 	local interval_index = player_data.utilization_interval or 1
-	local intervals = data.train_utilization
+	local intervals = select_interval_set(data, player_data)
 	local interval = intervals[interval_index]
+
+	-- If the interval set changed (due to filter change), re-register
+	if player_data.utilization_current_intervals ~= intervals then
+		-- Unregister from old interval set if registered
+		if player_data.utilization_registered and player_data.utilization_current_intervals then
+			local old_interval = player_data.utilization_current_intervals[interval_index]
+			if old_interval then
+				local player = game.get_player(player_data.player_index)
+				if player then
+					-- Destroy old chart render objects
+					if old_interval.line_ids and charts then
+						charts.destroy_render_objects(old_interval.line_ids)
+						old_interval.line_ids = {}
+					end
+					analytics.interval_unregister_gui(map_data, old_interval, player)
+				end
+			end
+		end
+		player_data.utilization_registered = nil
+		player_data.utilization_current_intervals = intervals
+		player_data.utilization_cache = nil
+	end
 
 	-- Update button styles to match current interval
 	local interval_buttons = refs.utilization_interval_buttons
@@ -254,8 +296,11 @@ function utilization_tab.build(map_data, player_data)
 	local cache = player_data.utilization_cache
 	local all_series
 	local cache_hit = false
+	local cache_key = string.format("%d:%s:%s", interval_index,
+		tostring(player_data.search_network_name or ""),
+		tostring(player_data.search_surface_idx or ""))
 
-	if cache and cache.interval_index == interval_index and (current_tick - cache.tick) < CACHE_DURATION_TICKS then
+	if cache and cache.key == cache_key and (current_tick - cache.tick) < CACHE_DURATION_TICKS then
 		all_series = cache.all_series
 		cache_hit = true
 	else
@@ -263,7 +308,7 @@ function utilization_tab.build(map_data, player_data)
 		all_series = build_sorted_series(interval)
 		player_data.utilization_cache = {
 			tick = current_tick,
-			interval_index = interval_index,
+			key = cache_key,
 			all_series = all_series,
 		}
 	end
@@ -327,7 +372,8 @@ function utilization_tab.cleanup(map_data, player_data)
 	if not player_data.player_index then return end
 
 	local interval_index = player_data.utilization_interval or 1
-	local interval = map_data.analytics.train_utilization[interval_index]
+	local intervals = player_data.utilization_current_intervals or map_data.analytics.train_utilization
+	local interval = intervals[interval_index]
 
 	-- Destroy chart render objects immediately to prevent overlap when switching tabs
 	if interval and interval.line_ids and charts then
@@ -342,6 +388,7 @@ function utilization_tab.cleanup(map_data, player_data)
 
 	-- Clear registration flag so we re-register next time
 	player_data.utilization_registered = nil
+	player_data.utilization_current_intervals = nil
 end
 
 utilization_tab.handle = {}
