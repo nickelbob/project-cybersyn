@@ -278,7 +278,10 @@ function create_delivery(map_data, r_station_id, p_station_id, train_id, manifes
 				if r_station.request_start_ticks and r_station.request_start_ticks[item_hash] then
 					fulfillment_time = game.tick - r_station.request_start_ticks[item_hash]
 				end
-				analytics.record_delivery_start(map_data, train_id, item_hash, fulfillment_time)
+				analytics.record_delivery_start(map_data, train_id, item_hash, fulfillment_time, r_station_id)
+			else
+				-- Clear active failure for non-primary manifest items too
+				analytics.clear_active_failure(map_data, r_station_id, item_hash)
 			end
 			clear_request_tracking(r_station, item_hash)
 		end
@@ -1069,6 +1072,7 @@ local function tick_poll_station(map_data, mod_settings)
 			for item_hash, _ in pairs(station.request_start_ticks) do
 				if not requested_items[item_hash] then
 					clear_request_tracking(station, item_hash)
+					analytics.clear_active_failure(map_data, station_id, item_hash)
 				end
 			end
 			

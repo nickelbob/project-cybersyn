@@ -196,6 +196,19 @@ function on_station_broken(map_data, station_id, station)
 			end
 		end
 	end
+	-- Clear all active failures for this station
+	if map_data.analytics and map_data.analytics.active_failures then
+		local prefix_suffix = ":" .. station_id
+		local keys_to_remove = {}
+		for key, _ in pairs(map_data.analytics.active_failures) do
+			if string.sub(key, -#prefix_suffix) == prefix_suffix then
+				keys_to_remove[#keys_to_remove + 1] = key
+			end
+		end
+		for _, key in ipairs(keys_to_remove) do
+			map_data.analytics.active_failures[key] = nil
+		end
+	end
 	clear_all_request_tracking(station)
 	map_data.stations[station_id] = nil
 	interface_raise_station_removed(station_id, station)
