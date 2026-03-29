@@ -356,6 +356,8 @@ function manager.handle.manager_update_item_search(player, player_data, refs, e)
 	if signal then
 		player_data.search_item = signal.name
 		interface_raise_item_selected(e.player_index, signal.name)
+		interop_add_recent_item(e.player_index, signal.name, "cybersyn")
+		player_data.recent_panel_dirty = true
 	else
 		player_data.search_item = nil
 	end
@@ -423,6 +425,8 @@ function manager.handle.recent_item_click(player, player_data, refs, e)
 			refs.manager_item_filter.elem_value = util.signalid_from_name(tags.item_name)
 		end
 		interface_raise_item_selected(e.player_index, tags.item_name)
+		interop_add_recent_item(e.player_index, tags.item_name, "cybersyn")
+		player_data.recent_panel_dirty = true
 	end
 end
 
